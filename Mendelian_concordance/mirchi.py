@@ -14,7 +14,7 @@ def parse_args():
     required.add_argument('-r', '--regions', required=True, metavar='<FILE>', help='regions BED file in ATaRVa format.')
 
     optional = parser.add_argument_group('Optional arguments')
-    optional.add_argument('--tool', type=str, metavar='<STR>', choices=['atarva', 'longtr', 'trgt'], help='Tool used for genotyping the TRs. [default: atarva]')
+    optional.add_argument('--tool', type=str, metavar='<STR>', choices=['atarva', 'longtr', 'trgt'], help='Tool used for genotyping the TRs [atarva, longtr, trgt]. [default: atarva]')
     optional.add_argument('--non-ref', action='store_true', help='If set, will not consider "same as reference alleles" in the analysis. [default: All-loci-mode]')
     optional.add_argument('-o', '--out', metavar='<FILE>', default='mirchi.tsv', help='output file name.')
     optional.add_argument('--contigs', nargs='+', help='contigs to calculate mendelian concordance eg [chr1 chr2 ch3]. If not mentioned every contigs in the region file will be considered.')
