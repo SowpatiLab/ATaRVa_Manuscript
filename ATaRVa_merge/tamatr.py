@@ -32,8 +32,6 @@ def processor(process_df, outfile, tidx, each_thread, total_samples):
                 sample_wise_full_gt.append('.:.:.:.:.:.:.:.:.')
             else:
                 genotyped_samples += 1
-                phaser = individual_sample_gt[1] # either '/' or '|'
-                sep_gt = individual_sample_gt.split(phaser) # separated genotype
                 GT = []
                 alt_seqs = splited_sample[0].split(',') if splited_sample[0]!='.' else ""
                 seq_lens = [0 if i=='<DEL>' else len(i) for i in alt_seqs]
@@ -46,18 +44,26 @@ def processor(process_df, outfile, tidx, each_thread, total_samples):
                         alt_seq_lens.append(lens)
                         alt_seq_count[lens] = 1 # initialize count of that alt allele
                         GT.append(str(len(alt_seq_lens)))
-                        
                 alt_count = len(GT)
-                if alt_count==2: # if there are two alt alleles
-                    new_GT = phaser.join(GT)
-                elif alt_count == 1: # if there is only one alt alleles
-                    the_single_gt = GT[0]
-                    if len(set(sep_gt)) == 2: # if it is heterozyous
-                        new_GT = phaser.join(['0', the_single_gt])
-                    else: # if it is homozygous
-                        new_GT = phaser.join([the_single_gt, the_single_gt])
-                else:
-                   new_GT = '0'+phaser+'0' 
+                if len(individual_sample_gt) > 1: # autosomes
+                    phaser = individual_sample_gt[1] # either '/' or '|'
+                    sep_gt = individual_sample_gt.split(phaser) # separated genotype
+                            
+                    if alt_count==2: # if there are two alt alleles
+                        new_GT = phaser.join(GT)
+                    elif alt_count == 1: # if there is only one alt alleles
+                        the_single_gt = GT[0]
+                        if len(set(sep_gt)) == 2: # if it is heterozyous
+                            new_GT = phaser.join(['0', the_single_gt])
+                        else: # if it is homozygous
+                            new_GT = phaser.join([the_single_gt, the_single_gt])
+                    else:
+                        new_GT = '0'+phaser+'0' 
+                else: # Sex chromosomes
+                    if alt_count==1:
+                        new_GT = str(GT[0])
+                    else:
+                        new_GT = '0'                        
 
                 splited_sample[1] = new_GT
                 sample_wise_full_gt.append(':'.join(splited_sample[1:]))
@@ -315,7 +321,7 @@ def reader(outfile, bedfile, ref, vcfs, contigs, tidx, process_thread):
         
         if parquet_frames:
             merged = reduce(lambda l, r: l.join(r, on=['s','e'], how='left'), parquet_frames)
-            whole_df = merged.collect(streaming=True)
+            whole_df = merged.collect(engine="streaming")
             print("Shape = ", whole_df.shape)
             
             if process_thread > 0:
@@ -378,7 +384,7 @@ def reader(outfile, bedfile, ref, vcfs, contigs, tidx, process_thread):
 
 def joiner(frames, parquet_batch, tidx, outfile):
     base = reduce(lambda l, r: l.join(r, on=['s', 'e'], how='left'), frames)
-    df = base.collect(streaming=True)
+    df = base.collect(engine="streaming")
     df.write_parquet(f"{outfile}_reader{tidx}_batch{parquet_batch}.parquet", compression="zstd")
 
 
@@ -432,15 +438,16 @@ def parse_args():
 
 
     required = parser.add_argument_group('Required arguments')
-    required.add_argument('-bed', '--regions', required=True, metavar='<FILE>', help='input regions file. the regions file should be strictly in bgzipped tabix format. \
+    required.add_argument('-r', '--regions', required=True, metavar='<FILE>', help='input regions file. the regions file should be strictly in bgzipped tabix format. \
                                                                   If the regions input file is in bed format. First sort it using bedtools. Compress it using bgzip. \
                                                                   Index the bgzipped file with tabix command from samtools package.')
-    required.add_argument('-f', '--vcfs', nargs='+', required=True, metavar='<FILE>', help='text file containing paths to input vcf files to be merged. The text file should list each path on a separate line. The vcf files should be strictly in bgzipped tabix format. \
+    required.add_argument('-i', '--vcfs', nargs='+', required=True, metavar='<FILE>', help='text file containing paths to input vcf files to be merged. The text file should list each path on a separate line. The vcf files should be strictly in bgzipped tabix format. \
                                                                   If the vcfs input file is in vcf format. First sort it using bcftools. Compress it using bgzip. \
                                                                   Index the bgzipped file with tabix command from samtools package.')
 
-    required.add_argument('-ref', '--fasta', required=True, metavar='<FILE>', help='input reference fasta file. The file should be indexed.')
+    required.add_argument('-f', '--fasta', required=True, metavar='<FILE>', help='input reference fasta file. The file should be indexed.')
     optional = parser.add_argument_group('Optional arguments')
+    optional.add_argument('--contigs', nargs='+', help='contigs to get merged [chr1 chr12 chr22 ..]. If not mentioned every contigs in the region file will be merged.')
     optional.add_argument('-o', '--outname', type=str, metavar='<STR>', default='', help='name of the output file, output is in vcf format.')
     optional.add_argument('-p',  '--processor', type=int, metavar='<INT>', default=1, help='number of processor. [default: 1]')
 
@@ -505,10 +512,15 @@ def main():
     
     tbx  = pysam.Tabixfile(args.regions)
     total_loci = 0
-    contigs = sorted(tbx.contigs)
-    for each_contig in contigs:
-        for row in tbx.fetch(each_contig):
+    if not args.contigs:
+        contigs = sorted(tbx.contigs)
+        for row in tbx.fetch():
             total_loci += 1
+    else:
+        contigs = sorted(args.contigs)
+        for each_contig in contigs:
+            for row in tbx.fetch(each_contig):
+                total_loci += 1
     
     print('total_loci = ', total_loci)
 
@@ -517,8 +529,12 @@ def main():
 
     
     split_point = 5000 if total_loci > 5000 else total_loci // 5
+    if split_point == 0:
+        split_point = 1
+        partition_point = 1
+    else:
+        partition_point = total_loci//split_point
 
-    partition_point = total_loci//split_point
     split_point_chunks = 0 # to count number of split_point chunks excluding the 'minimum chunks' eg 9920 from 1 contig and 80 from another contig to add up to 10000
     fetcher = []
     line_count = 0
@@ -605,4 +621,5 @@ def main():
     sys.stderr.write('CPU time: {} seconds\n'.format(time_now - start_time))
 
 if __name__ == '__main__':
+    pl.enable_string_cache()
     main()
