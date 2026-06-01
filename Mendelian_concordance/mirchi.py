@@ -14,7 +14,7 @@ def parse_args():
     required.add_argument('-r', '--regions', required=True, metavar='<FILE>', help='regions BED file in ATaRVa format.')
 
     optional = parser.add_argument_group('Optional arguments')
-    optional.add_argument('--tool', type=str, metavar='<STR>', choices=['atarva', 'longtr', 'trgt'], help='Tool used for genotyping the TRs [atarva, longtr, trgt]. [default: atarva]')
+    optional.add_argument('--tool', type=str, metavar='<STR>', choices=['atarva', 'longtr', 'trgt', 'strkit'], help='Tool used for genotyping the TRs [atarva, longtr, trgt, strkit]. [default: atarva]')
     optional.add_argument('--non-ref', action='store_true', help='If set, will not consider "same as reference alleles" in the analysis. [default: All-loci-mode]')
     optional.add_argument('-o', '--out', metavar='<FILE>', default='mirchi.tsv', help='output file name.')
     optional.add_argument('--contigs', nargs='+', help='contigs to calculate mendelian concordance eg [chr1 chr2 ch3]. If not mentioned every contigs in the region file will be considered.')
@@ -42,8 +42,8 @@ def extract_alleles(vcf, contig, atarva_non_ref, allele_dict):
     for line in vcf.fetch(contig):
         line = line.strip().split('\t')
         if line[6]!='PASS': continue
-        start = int(line[1])
-        end = int(line[7].split(';')[3].split('=')[1])
+        start = int(line[1])-1
+        end = int(line[7].split(';')[4].split('=')[1])
         key = f'{line[0]}:{start}-{end}' # add+1 to start for 1-based vcf format
         sample = line[-1].split(':')
         alleles = sample[1].split(',')
@@ -101,7 +101,38 @@ def extract_trgt_alleles(vcf, contig, trgt_non_ref, allele_dict):
         if (len(allele_set)==1) and (end-start == list(allele_set)[0]):
             pass
         else:
-            trgt_non_ref[key][0] = True
+            if key in trgt_non_ref:
+                trgt_non_ref[key][0] = True
+        allele_dict[key] = allele_set
+    return allele_dict
+
+def extract_strkit_alleles(vcf, contig, strkit_non_ref, allele_dict):
+    for line in vcf.fetch(contig):
+        line = line.strip().split('\t')
+        info = line[7].split(";")
+        start = int(info[3].split('=')[1])
+        end = int(info[4].split('=')[1])
+        key = f'{line[0]}:{start}-{end}'
+
+        sample_GT = line[9].split(':')[0].split('/')
+        GT = set(sample_GT)
+        alt = line[4]
+        if alt == '.': # 0/0
+            alleles = [len(line[3])]
+        elif GT == {'0', '1'}: # 0/1
+            alleles = [len(line[3]), len(alt)]
+        else: # 1/1, 1/2
+            alleles = [len(i) for i in alt.split(',')]
+        alleles = sorted([i-1 for i in alleles])
+
+        allele_set = set()
+        for i in alleles:
+            allele_set.add(int(i))
+        if (len(allele_set)==1) and (end-start == list(allele_set)[0]):
+            pass
+        else:
+            if key in strkit_non_ref:
+                strkit_non_ref[key][0] = True
         allele_dict[key] = allele_set
     return allele_dict
 
@@ -141,6 +172,7 @@ def mendelian_concordance(A_Whole_loci_set, atarva_non_ref, dad_alleles, mom_all
     off_by_1motif = 0 
 
     for each_loci in A_Whole_loci_set:
+        if each_loci not in atarva_non_ref: continue
         if any(atarva_non_ref[each_loci]) and (each_loci in dad_alleles) and (each_loci in mom_alleles) and (each_loci in kid_alleles):
 
             motif = Assembly_motif_dict[each_loci] # gets motif size from already generated dictionary
@@ -249,13 +281,14 @@ def main():
     kid_vcf = pysam.TabixFile(args.kid)
     dad_vcf = pysam.TabixFile(args.dad)
     mom_vcf = pysam.TabixFile(args.mom)
+    common_contigs = set(kid_vcf.contigs) & set(dad_vcf.contigs) & set(mom_vcf.contigs)
 
     # Load the regions BED file
     tbx  = pysam.Tabixfile(args.regions)
     if not args.contigs:
-        contigs = sorted(tbx.contigs)
+        contigs = sorted(common_contigs & set(tbx.contigs))
     else:
-        contigs = sorted(args.contigs)
+        contigs = sorted(common_contigs & set(args.contigs))
     Assembly_motif_dict, atarva_non_ref = extract_motif(tbx, contigs, args.non_ref)
 
     if args.tool:
@@ -283,6 +316,11 @@ def main():
             dad_alleles = extract_trgt_alleles(dad_vcf, contig, atarva_non_ref, dad_alleles)
             mom_alleles = extract_trgt_alleles(mom_vcf, contig, atarva_non_ref, mom_alleles)
             kid_alleles = extract_trgt_alleles(kid_vcf, contig, atarva_non_ref, kid_alleles)
+    elif tool=='strkit':
+        for contig in contigs:
+            dad_alleles = extract_strkit_alleles(dad_vcf, contig, atarva_non_ref, dad_alleles)
+            mom_alleles = extract_strkit_alleles(mom_vcf, contig, atarva_non_ref, mom_alleles)
+            kid_alleles = extract_strkit_alleles(kid_vcf, contig, atarva_non_ref, kid_alleles)
     kid_vcf.close()
     dad_vcf.close()
     mom_vcf.close()
