@@ -8,7 +8,7 @@ A Python script for simulating tandem repeat sequences with configurable motif s
 
 - Python 3.7+
 - `tqdm`
-- Custom modules: `interruption-TR-simulation`, `compound-TR-simulation`
+- Custom modules: `interrupted_TR_simulation`, `compound_TR_simulation`
 - Motif file: `motif-list.tsv` (must be present in the working directory)
 
 Install dependencies:
@@ -128,5 +128,5 @@ Column 1 is the motif sequence; column 2 is its length. Only motifs within the s
 
 | Module | Role |
 |---|---|
-| `interruptions-TR-simulation` | Applies substitutions and updates mutation tracking |
-| `compound-TR-simulation` | Generates repeat sequences with structural tracking |
+| `interrupted_TR_simulation` | Applies substitutions and updates mutation tracking |
+| `compound_TR_simulation` | Generates repeat sequences with structural tracking |

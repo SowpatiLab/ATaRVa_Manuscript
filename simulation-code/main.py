@@ -6,11 +6,11 @@ from tqdm import tqdm
 import sys
 import argparse
 
-from point_mutation import (
+from interrupted_TR_simulation import (
     mutate_sequence_with_motif_spacing,
     update_tracking_with_substitutions
 )
-from multi_motif_seq import generate_complex_repeat_with_tracking
+from compound_TR_simulation import generate_complex_repeat_with_tracking
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Complex Tandem Repeat Simulator")
