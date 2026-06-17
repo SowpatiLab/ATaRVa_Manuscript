@@ -1,5 +1,7 @@
-![Alt Text](logo_image.png)
 
+<div align="center">
+    <img src="logo_image.png" alt="Centered Logo">
+</div>
 
 # Complex Tandem Repeat Simulator
 
