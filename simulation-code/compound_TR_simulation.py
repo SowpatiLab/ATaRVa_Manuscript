@@ -1,5 +1,5 @@
 import random
-from interrupted-TR-simulation import *
+from interrupted_TR_simulation import *
 
 
 def generate_complex_repeat_with_tracking(primary_motif, total_length, sequence_type="fragmented", fragment_mutation_rate=0.8):
