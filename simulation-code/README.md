@@ -1,3 +1,6 @@
+![Alt Text](logo_image.png)
+
+
 # Complex Tandem Repeat Simulator
 
 A Python script for simulating tandem repeat sequences with configurable motif sizes, repeat lengths, interruptions, and compound repeats. Outputs FASTA and BED files for downstream analysis.
